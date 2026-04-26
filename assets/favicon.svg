@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#1a1410"/>
+  <polygon points="32,6 56,19 56,45 32,58 8,45 8,19" fill="none" stroke="#b98018" stroke-width="2.5"/>
+  <text x="32" y="44" text-anchor="middle" font-family="Cinzel, Trajan Pro, Times New Roman, serif" font-weight="700" font-size="30" fill="#f0ddae">AA</text>
+</svg>

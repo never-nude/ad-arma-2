@@ -1,0 +1,16 @@
+{
+  "name": "Ad Arma",
+  "short_name": "Ad Arma",
+  "description": "Classical-era hex tactics in the browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#1a1410",
+  "theme_color": "#1a1410",
+  "icons": [
+    { "src": "/assets/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "/assets/favicon-32.png", "type": "image/png", "sizes": "32x32" },
+    { "src": "/assets/apple-touch-icon.png", "type": "image/png", "sizes": "180x180", "purpose": "any maskable" }
+  ]
+}
