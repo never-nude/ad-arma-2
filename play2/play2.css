@@ -1,0 +1,419 @@
+/* ============================================================
+   play2 — overhaul layer on top of /app/style.css
+   Goals: persistent directive cards, phase chips, tightened side.
+   ============================================================ */
+
+:root {
+  --p2-parchment: #f3e9cd;
+  --p2-ink: #1a120c;
+  --p2-ink-dim: #4a3826;
+  --p2-gold: #b98018;
+  --p2-gold-bright: #e7c771;
+  --p2-oxblood: #6b1f1f;
+  --p2-stone: #1c1a1f;
+  --p2-stone-soft: #2a262d;
+  --p2-line: rgba(216, 189, 126, 0.32);
+  --p2-line-strong: rgba(216, 189, 126, 0.55);
+  --p2-warn: #d97a4e;
+  --p2-bar-h: 56px;
+  --p2-strip-h: 132px;
+}
+
+/* ---------- Hide legacy chrome the overhaul replaces ---------- */
+
+/* Three redundant "Open War Council" buttons. The directive strip
+   IS the war council surface now — those buttons are dead weight. */
+body.play2-active #doctrineOpenHeroBtn,
+body.play2-active #doctrineOpenTurnBtn,
+body.play2-active #doctrineOpenBtn {
+  display: none !important;
+}
+
+/* The legacy command select + Use/Skip buttons stay in the DOM
+   so main.js wires to them, but they're invisible — the directive
+   cards replace them visually. */
+body.play2-active #commandSel,
+body.play2-active #commandUseBtn,
+body.play2-active #commandSkipBtn,
+body.play2-active #commandPhaseNote,
+body.play2-active #commandCoachCard {
+  position: absolute !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Collapse the three rules buttons into a single "?" we'll inject. */
+body.play2-active #openOrdersKeyBtn,
+body.play2-active #openQuickRulesBtn,
+body.play2-active #openFullRulesBtn {
+  display: none !important;
+}
+
+/* Doctrine quick-build helpers move into a single setup overlay. */
+body.play2-active #doctrineRecommendedBtn,
+body.play2-active #doctrineRandomBtn,
+body.play2-active #doctrineBlankBtn {
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  min-height: 26px !important;
+}
+
+/* Hide the old hudMeta text — phase chips replace it. The element
+   stays so main.js can keep writing to it; we just don't show it. */
+body.play2-active #hud {
+  display: none !important;
+}
+
+/* ---------- New chrome injected by play2.js ---------- */
+
+.p2-bar {
+  position: fixed;
+  top: var(--safe-top);
+  left: var(--safe-left);
+  right: var(--safe-right);
+  height: var(--p2-bar-h);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(20, 16, 12, 0.96), rgba(11, 9, 7, 0.96));
+  border-bottom: 1px solid var(--p2-line-strong);
+  font-family: 'Source Sans 3', system-ui, sans-serif;
+  color: var(--p2-parchment);
+  pointer-events: auto;
+}
+
+.p2-bar-title {
+  font-family: 'Cinzel', 'Trajan Pro', serif;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 16px;
+  color: var(--p2-gold-bright);
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+.p2-bar-side {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--p2-line);
+}
+.p2-bar-side.p2-side-blue {
+  color: #d8e7ff;
+  border-color: rgba(120, 160, 220, 0.5);
+  background: rgba(40, 60, 90, 0.4);
+}
+.p2-bar-side.p2-side-red {
+  color: #ffd8d0;
+  border-color: rgba(200, 80, 60, 0.5);
+  background: rgba(80, 30, 25, 0.45);
+}
+
+.p2-phase-chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 0 1 auto;
+}
+.p2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--p2-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #8a8276;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.p2-chip.p2-chip-active {
+  color: var(--p2-ink);
+  background: var(--p2-gold-bright);
+  border-color: var(--p2-gold);
+  box-shadow: 0 0 0 3px rgba(231, 199, 113, 0.2);
+}
+.p2-chip.p2-chip-done {
+  color: #5a533f;
+  background: rgba(231, 199, 113, 0.06);
+  border-color: rgba(231, 199, 113, 0.18);
+}
+.p2-chip.p2-chip-skipped {
+  color: #6b5a3e;
+  background: transparent;
+  border-color: rgba(231, 199, 113, 0.12);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.p2-bar-spacer { flex: 1 1 auto; }
+
+.p2-bar-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--p2-line);
+  color: var(--p2-parchment);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.p2-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--p2-line-strong);
+}
+.p2-bar-btn.p2-primary {
+  background: var(--p2-oxblood);
+  border-color: #8a2a2a;
+  color: #fff5e8;
+}
+.p2-bar-btn.p2-primary:hover {
+  background: #831f1f;
+}
+.p2-bar-btn.p2-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+/* ---------- Directive strip ---------- */
+
+.p2-strip {
+  position: fixed;
+  top: calc(var(--safe-top) + var(--p2-bar-h));
+  left: var(--safe-left);
+  right: var(--safe-right);
+  z-index: 195;
+  background: linear-gradient(180deg, rgba(28, 22, 16, 0.94), rgba(20, 16, 12, 0.94));
+  border-bottom: 1px solid var(--p2-line);
+  padding: 10px 14px;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.p2-strip-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: #6e6655;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 16px;
+}
+
+.p2-strip-label {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 96px;
+  padding: 4px 10px;
+  border-right: 1px solid var(--p2-line);
+}
+.p2-strip-label-tag {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--p2-gold-bright);
+}
+.p2-strip-label-sub {
+  font-size: 11px;
+  color: #8a8276;
+  margin-top: 2px;
+}
+
+.p2-card {
+  flex: 0 0 auto;
+  width: 220px;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(50, 38, 22, 0.6), rgba(34, 26, 16, 0.7));
+  border: 1px solid var(--p2-line);
+  border-radius: 10px;
+  padding: 9px 11px 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--p2-parchment);
+  position: relative;
+  transition: transform 0.12s ease-out, border-color 0.12s, background 0.12s;
+}
+.p2-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--p2-gold);
+  background: linear-gradient(180deg, rgba(70, 52, 28, 0.7), rgba(46, 34, 20, 0.8));
+}
+.p2-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.36;
+  transform: none;
+}
+
+.p2-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.p2-card-name {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--p2-gold-bright);
+  font-family: 'Cinzel', serif;
+}
+.p2-card-cost {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #8a8276;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.p2-card-body {
+  font-size: 12px;
+  line-height: 1.32;
+  color: #c8bfa8;
+  flex: 1 1 auto;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.p2-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8276;
+}
+.p2-card-use {
+  font-weight: 700;
+  color: var(--p2-gold-bright);
+  letter-spacing: 0.14em;
+}
+
+/* Pulse the cards when it's your turn and you haven't issued one yet. */
+@keyframes p2-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231, 199, 113, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(231, 199, 113, 0.18); }
+}
+.p2-strip.p2-strip-pulse .p2-card {
+  animation: p2-pulse 2s ease-in-out infinite;
+}
+
+/* "Skip" pseudo-card */
+.p2-card-skip {
+  width: 130px;
+  background: transparent;
+  border: 1px dashed rgba(216, 189, 126, 0.32);
+  color: #8a8276;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.p2-card-skip:hover {
+  border-color: var(--p2-gold);
+  color: var(--p2-parchment);
+  background: rgba(255, 255, 255, 0.02);
+  transform: translateY(-2px);
+}
+
+/* ---------- Layout shift to make room for fixed bars ---------- */
+
+body.play2-active main#layout {
+  margin-top: calc(var(--p2-bar-h) + var(--p2-strip-h));
+}
+
+/* When directive strip is hidden (e.g. setup mode), only push down by bar */
+body.play2-active.p2-no-strip main#layout {
+  margin-top: var(--p2-bar-h);
+}
+
+body.play2-active main#layout {
+  /* Keep the existing aside#side but tighten it */
+}
+
+body.play2-active aside#side {
+  font-size: 13px;
+}
+
+/* Quietly hide the giant title text "Ad Arma" inside the side panel
+   and the "To Play" mode toggle (we have it in the top bar). */
+body.play2-active #side > h2,
+body.play2-active #side > h3 {
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a8276;
+  margin: 14px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--p2-line);
+}
+body.play2-active #side > h2:first-child,
+body.play2-active #side > h3:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+/* ---------- Intro card retheme (the play2 entry point) ---------- */
+
+body.play2-active .introCard {
+  border-color: var(--p2-line-strong);
+  background: linear-gradient(180deg, #1a1410 0%, #0e0a08 100%);
+}
+
+body.play2-active .introTitle {
+  color: var(--p2-gold-bright);
+}
+
+body.play2-active .introScenarioStrip span {
+  border-color: var(--p2-line);
+  background: rgba(8, 6, 4, 0.6);
+  color: #cdb98a;
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 720px) {
+  :root { --p2-bar-h: 48px; --p2-strip-h: 116px; }
+  .p2-bar-title { font-size: 13px; letter-spacing: 0.12em; }
+  .p2-phase-chips { flex-wrap: wrap; gap: 4px; }
+  .p2-chip { padding: 4px 8px; font-size: 10px; }
+  .p2-card { width: 184px; min-height: 88px; }
+  .p2-strip-label { display: none; }
+}
