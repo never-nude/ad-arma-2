@@ -13,7 +13,7 @@
   });
 
   function normalizeAssetBase(base) {
-    const raw = String(base || '/assets/');
+    const raw = String(base || 'assets/');
     return raw.endsWith('/') ? raw : `${raw}/`;
   }
 
@@ -26,7 +26,7 @@
   }
 
   function createUnitIconHelper(options = {}) {
-    const assetBase = normalizeAssetBase(options.assetBase || root.AD_ARMA_BUILD?.assetBase || '/assets/');
+    const assetBase = normalizeAssetBase(options.assetBase || root.AD_ARMA_BUILD?.assetBase || 'assets/');
     const buildId = resolveBuildId(options);
     const unitIconSources = Object.freeze({
       arc: `${assetBase}icon_arc.png`,

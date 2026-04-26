@@ -2,7 +2,7 @@ window.AD_ARMA_BUILD_ID = '20260426-phase2-data-cleanup';
 window.AD_ARMA_BUILD = {
   id: window.AD_ARMA_BUILD_ID,
   channel: 'root',
-  assetBase: '/assets/',
+  assetBase: 'assets/',
 };
 
 window.AD_ARMA_BUILD_LABEL = `Ad Arma build ${window.AD_ARMA_BUILD_ID} (${window.AD_ARMA_BUILD.channel})`;

@@ -17,7 +17,7 @@
   const iconKit = (window.AdArmaIconHelper && typeof window.AdArmaIconHelper.createUnitIconHelper === 'function')
     ? window.AdArmaIconHelper.createUnitIconHelper({
       buildId: BUILD_ID,
-      assetBase: window.AD_ARMA_BUILD?.assetBase || '/assets/',
+      assetBase: window.AD_ARMA_BUILD?.assetBase || 'assets/',
     })
     : null;
   const URL_PARAMS = new URLSearchParams(window.location.search || '');
