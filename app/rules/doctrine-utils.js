@@ -9,7 +9,11 @@
   const DEFAULT_COMMANDS_PER_COST = 3;
 
   function commandActionSpend(cmd) {
-    return Math.max(1, Number(cmd?.cost || 0));
+    return Math.max(1, Number(cmd?.actionSpend ?? cmd?.cost ?? cmd?.tier ?? 0));
+  }
+
+  function commandTier(cmd) {
+    return Math.max(1, Number(cmd?.tier ?? cmd?.cost ?? 0));
   }
 
   function resolveCommand(commandById, id) {
@@ -30,7 +34,7 @@
     const uniq = new Set(ids);
     if (uniq.size !== ids.length) return false;
     for (const cost of costs) {
-      const count = ids.filter((id) => Number(resolveCommand(options.commandById, id)?.cost || 0) === cost).length;
+      const count = ids.filter((id) => commandTier(resolveCommand(options.commandById, id)) === cost).length;
       if (count !== perCost) return false;
     }
     return true;
@@ -40,6 +44,7 @@
     DEFAULT_COMMAND_COSTS,
     DEFAULT_COMMANDS_PER_COST,
     commandActionSpend,
+    commandTier,
     validateDoctrineLoadout,
   };
 });

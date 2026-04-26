@@ -31,10 +31,12 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/app/style.css?v=20260317-augustus-cleanup-v2" />
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/cinzel-latin.woff2" crossorigin />
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/sourcesans3-latin.woff2" crossorigin />
+  <link rel="preload" as="script" href="/app/main.js?v=20260426-phase2-data-cleanup" />
+  <link rel="preload" as="script" href="/vendor/peerjs-1.5.4.min.js" />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
+  <link rel="stylesheet" href="/app/style.css?v=20260426-phase2-data-cleanup" />
 </head>
 <body>
   <div id="introOverlay" class="introOverlay open" aria-hidden="false">
@@ -42,6 +44,16 @@
       <h1 id="introTitle" class="introTitle">Ad Arma</h1>
       <p class="introLead">
         A classical-era tactics game of command, cohesion, and collapse. Choose how you want to begin this battle.
+      </p>
+      <p class="introScenarioStrip" aria-label="Featured historical battles">
+        <span>Marathon&nbsp;490 BCE</span>
+        <span>Thermopylae&nbsp;480 BCE</span>
+        <span>Granicus&nbsp;334 BCE</span>
+        <span>Cannae&nbsp;216 BCE</span>
+        <span>Zama&nbsp;202 BCE</span>
+        <span>Carrhae&nbsp;53 BCE</span>
+        <span>Pharsalus&nbsp;48 BCE</span>
+        <span>Teutoburg&nbsp;9 CE</span>
       </p>
       <div class="introActions" id="introActions">
         <button id="introPlayNowBtn" class="btn introActionBtn" type="button">
@@ -77,6 +89,7 @@
       <p class="introFooter">
         Open source on <a href="https://github.com/never-nude/ad-arma-2" rel="noopener" target="_blank">GitHub</a>.
         Multiplayer relayed via PeerJS.
+        <span class="introBuild" data-build-marker>Ad Arma build loading</span>
       </p>
     </div>
   </div>
@@ -264,7 +277,8 @@
           Waiting for game setup. In online mode, this panel appears after both commanders are connected.
         </div>
         <div class="note">
-          Build each side with 3 Cost-1, 3 Cost-2, and 3 Cost-3 orders.
+          Build each side with 3 Tier-1, 3 Tier-2, and 3 Tier-3 orders.
+          Tier sets the War Council selection group; the preview shows the action spend paid when an order is issued.
           Reusable orders can be issued again in later turns. Single-Use orders are consumed after use.
         </div>
         <div class="row">
@@ -361,8 +375,8 @@
             <article id="rulesQuickDoc" class="rulesDoc active">
               <h3>Short Rules</h3>
               <p>
-                Each side gets 3 actions per turn. Most units can act once. You may move, attack, pass, or use one command order
-                during your turn. After action 3, turn passes automatically.
+                Each side gets 3 actions per turn. At the start of each turn, before unit actions, you may commit one command order
+                or skip the doctrine step. After that, you may move, attack, pass, or use Line Advance. After action 3, turn passes automatically.
               </p>
               <p>
                 Dice are d6: 6 = hit + disarray, 5 = hit, 4 = retreat, 3 = disarray, 1-2 = miss.
@@ -438,7 +452,7 @@
                 contact better than standard troops.
               </p>
               <p>
-                Combat is resolved with d6 dice. A 6 is hit + retreat + disarray, 5 is hit, 4 is retreat, 3 is disarray, and
+                Combat is resolved with d6 dice. A 6 is hit + disarray, 5 is hit, 4 is retreat, 3 is disarray, and
                 1-2 is miss. Melee and ranged profiles determine how many dice are rolled before modifiers. Standard melee dice are:
                 infantry 2, cavalry 3, skirmishers 2, archers 1, general 1, runner 0, medic 0. Ranged attacks are primarily for
                 archers and skirmishers: archers roll 2 dice at range 2 and 1 die at range 3; skirmishers roll 1 die at range 2.
@@ -494,11 +508,12 @@
             <article id="rulesCommandsDoc" class="rulesDoc">
               <h3>Command Orders Primer</h3>
               <p>
-                Each side builds a 3/3/3 doctrine before battle: three Cost 1, three Cost 2, and three Cost 3 orders.
-                Orders are labeled as <b>Reusable</b> or <b>Single-Use</b>.
+                Each side builds a 3/3/3 doctrine before battle: three Tier 1, three Tier 2, and three Tier 3 orders.
+                Tiers organize War Council selection; the order preview lists the actual action spend. Orders are labeled as <b>Reusable</b> or <b>Single-Use</b>.
               </p>
               <p>
-                Reusable means you may issue that order again later if legal. Single-Use means once it is issued, it is consumed.
+                At the start of your turn, before unit actions, you may issue one legal order or skip the doctrine step.
+                Reusable means you may issue that order again on a later turn if legal. Single-Use means once it is issued, it is consumed.
                 This guide lists every order in plain language.
               </p>
               <div class="rulesCommandScopeRow">
@@ -519,7 +534,7 @@
             <button id="closeDoctrineBtn" class="btn" type="button">Minimize</button>
           </div>
           <div class="doctrineIntroNote">
-            Select exactly 3 orders in each cost column. Each preview explains action spend, target guidance, board effect,
+            Select exactly 3 orders in each tier column. Each preview explains action spend, target guidance, board effect,
             and when the order is strongest. Reusable orders can be used again; Single-Use orders are consumed when played.
           </div>
           <div class="row">
@@ -532,7 +547,7 @@
             <button id="doctrineRandomizeBtn" class="btn">Random</button>
             <button id="doctrineBlankizeBtn" class="btn">Blank</button>
           </div>
-          <div id="doctrineBuilderCounts" class="note">Select exactly 3 commands in each cost group.</div>
+          <div id="doctrineBuilderCounts" class="note">Select exactly 3 commands in each tier group.</div>
           <div class="doctrineModalBody">
             <div class="doctrineModalAside">
               <div id="doctrineExplain" class="doctrineExplain">
@@ -549,15 +564,15 @@
             </div>
             <div class="doctrineBuilderGrid">
               <section id="doctrineCost1Col" class="doctrineCostCol">
-                <h3 id="doctrineCost1Title">Cost 1</h3>
+                <h3 id="doctrineCost1Title">Tier 1</h3>
                 <div id="doctrineCost1List" class="doctrineBuilderList"></div>
               </section>
               <section id="doctrineCost2Col" class="doctrineCostCol">
-                <h3 id="doctrineCost2Title">Cost 2</h3>
+                <h3 id="doctrineCost2Title">Tier 2</h3>
                 <div id="doctrineCost2List" class="doctrineBuilderList"></div>
               </section>
               <section id="doctrineCost3Col" class="doctrineCostCol">
-                <h3 id="doctrineCost3Title">Cost 3</h3>
+                <h3 id="doctrineCost3Title">Tier 3</h3>
                 <div id="doctrineCost3List" class="doctrineBuilderList"></div>
               </section>
             </div>
@@ -650,13 +665,15 @@
     </div>
   </section>
 
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" integrity="sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="/app/ui/icons.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="/app/data/scenario-meta.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="/app/rules/doctrine-effects.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="/app/rules/doctrine-utils.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="/app/rules/objectives.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="build.js?v=20260317-augustus-cleanup-v2"></script>
-  <script src="/app/main.js?v=20260317-augustus-cleanup-v2"></script>
+  <script src="/vendor/peerjs-1.5.4.min.js"></script>
+  <script src="/app/ui/icons.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/data/scenario-meta.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/data/doctrine-orders.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/rules/doctrine-effects.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/rules/doctrine-utils.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/rules/objectives.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/rules/combat-dice.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="build.js?v=20260426-phase2-data-cleanup"></script>
+  <script src="/app/main.js?v=20260426-phase2-data-cleanup"></script>
 </body>
 </html>

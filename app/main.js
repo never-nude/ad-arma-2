@@ -9,9 +9,11 @@
   const BUILD_ID = (window.AD_ARMA_BUILD_ID || 'DEV');
   const BUILD_CHANNEL = String(window.AD_ARMA_BUILD?.channel || 'root');
   const scenarioMetaApi = window.AdArmaScenarioMeta || {};
+  const doctrineOrdersApi = window.AdArmaDoctrineOrders || {};
   const doctrineEffectsApi = window.AdArmaDoctrineEffects || {};
   const doctrineUtilsApi = window.AdArmaDoctrineUtils || {};
   const objectivesApi = window.AdArmaObjectives || {};
+  const combatDiceApi = window.AdArmaCombatDice || {};
   const iconKit = (window.AdArmaIconHelper && typeof window.AdArmaIconHelper.createUnitIconHelper === 'function')
     ? window.AdArmaIconHelper.createUnitIconHelper({
       buildId: BUILD_ID,
@@ -59,8 +61,29 @@
     });
   const activeDoctrineEffectsForUnitShared = doctrineEffectsApi.activeDoctrineEffectsForUnit
     || (() => ({ turnKeys: [], longKeys: [], hasAny: false, hasPersistent: false, reserveReleased: false, labels: [] }));
-  const resolveScenarioMetadata = scenarioMetaApi.resolveScenarioMetadata
-    || ((name, explicitMeta) => ({ ...(explicitMeta || {}), group: explicitMeta?.group || 'other', objectives: explicitMeta?.objectives || [] }));
+  const normalizeScenarioRecordShared = scenarioMetaApi.normalizeScenarioRecord
+    || ((name, record = {}) => {
+      const explicit = (record.meta && typeof record.meta === 'object') ? record.meta : {};
+      return {
+        id: explicit.id || String(name || 'scenario').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        title: explicit.title || name,
+        group: explicit.group || 'other',
+        lesson: explicit.lesson || 'general',
+        victoryType: explicit.victoryType || 'decapitation',
+        terrainType: explicit.terrainType || explicit.terrain || '',
+        description: explicit.description || '',
+        historical: explicit.historical || '',
+        sideLabels: explicit.sideLabels || null,
+        factions: explicit.factions || explicit.sideLabels || { blue: 'Blue Army', red: 'Red Army', named: false },
+        objectives: Array.isArray(record.objectives) ? record.objectives : (explicit.objectives || []),
+        checkpointTurn: explicit.checkpointTurn || 8,
+        pointTarget: explicit.pointTarget || null,
+        specialRules: Array.isArray(explicit.specialRules) ? explicit.specialRules : [],
+        startingUnits: Array.isArray(record.units) ? record.units : [],
+        terrain: Array.isArray(record.terrain) ? record.terrain : [],
+        notes: explicit.notes || '',
+      };
+    });
   const normalizeScenarioObjectivesShared = objectivesApi.normalizeScenarioObjectives
     || ((rawObjectives) => Array.isArray(rawObjectives) ? rawObjectives.slice() : []);
   const evaluateObjectiveControlStateShared = objectivesApi.evaluateObjectiveControlState
@@ -70,7 +93,30 @@
       ? 'No key-ground objectives in this scenario.'
       : `Objectives: Blue ${objState.blueValue} · Red ${objState.redValue} · contested ${objState.contested}/${objState.zones}.`);
   const commandActionSpendShared = doctrineUtilsApi.commandActionSpend
-    || ((cmd) => Math.max(1, Number(cmd?.cost || 0)));
+    || ((cmd) => Math.max(1, Number(cmd?.actionSpend ?? cmd?.cost ?? cmd?.tier ?? 0)));
+  const normalizeDoctrineOrderShared = doctrineOrdersApi.normalizeDoctrineOrder
+    || ((cmd) => {
+      const tier = Math.max(1, Number(cmd?.tier ?? cmd?.cost ?? 1));
+      const singleUse = cmd?.singleUse === true || cmd?.persistence === 'spent';
+      const target = cmd?.target || { summary: cmd?.targeting || '', min: 0, max: Infinity };
+      return {
+        ...cmd,
+        tier,
+        actionSpend: Math.max(1, Number(cmd?.actionSpend ?? cmd?.cost ?? tier)),
+        timing: cmd?.timing || 'startOfTurn',
+        reusable: !singleUse,
+        singleUse,
+        duration: cmd?.duration || 'thisTurn',
+        target,
+        effectSummary: cmd?.effectSummary || cmd?.explain || '',
+        revealOnUse: cmd?.revealOnUse !== false,
+        consumeOnUse: cmd?.consumeOnUse === true || singleUse,
+        cost: tier,
+        persistence: singleUse ? 'spent' : 'persistent',
+        targeting: target.summary || cmd?.targeting || '',
+        explain: cmd?.effectSummary || cmd?.explain || '',
+      };
+    });
   const validateDoctrineLoadoutShared = doctrineUtilsApi.validateDoctrineLoadout
     || ((ids, options = {}) => {
       if (!Array.isArray(ids)) return false;
@@ -87,6 +133,37 @@
       }
       return true;
     });
+  const combatDieResult = combatDiceApi.combatDieResult
+    || ((roll) => {
+      const value = Math.max(1, Math.min(6, Math.trunc(Number(roll) || 1)));
+      if (value === 6) return { hits: 1, retreats: 0, disarrays: 1, misses: 0, badge: 'HD', outcome: 'hit', label: 'hit + disarray' };
+      if (value === 5) return { hits: 1, retreats: 0, disarrays: 0, misses: 0, badge: 'H', outcome: 'hit', label: 'hit' };
+      if (value === 4) return { hits: 0, retreats: 1, disarrays: 0, misses: 0, badge: 'R', outcome: 'retreat', label: 'retreat' };
+      if (value === 3) return { hits: 0, retreats: 0, disarrays: 1, misses: 0, badge: 'D', outcome: 'disarray', label: 'disarray' };
+      return { hits: 0, retreats: 0, disarrays: 0, misses: 1, badge: 'M', outcome: 'miss', label: 'miss' };
+    });
+  const combatDieLabel = combatDiceApi.combatDieLabel
+    || ((roll) => combatDieResult(roll).label.replace(/\b\w/g, (ch) => ch.toUpperCase()));
+  const combatDiceRulesText = combatDiceApi.combatDiceRulesText
+    || ((options = {}) => {
+      const eq = options.compact ? '=' : ' = ';
+      return `6${eq}hit + disarray, 5${eq}hit, 4${eq}retreat, 3${eq}disarray, 1-2${eq}miss`;
+    });
+  const summarizeCombatRolls = combatDiceApi.summarizeCombatRolls
+    || ((rolls = []) => {
+      const summary = { hits: 0, retreats: 0, disarrays: 0, misses: 0 };
+      if (!Array.isArray(rolls)) return summary;
+      for (const roll of rolls) {
+        const result = combatDieResult(roll);
+        summary.hits += result.hits;
+        summary.retreats += result.retreats;
+        summary.disarrays += result.disarrays;
+        summary.misses += result.misses;
+      }
+      return summary;
+    });
+  const COMBAT_DICE_RULES_COMPACT = combatDiceRulesText({ compact: true });
+  const COMBAT_DICE_RULES_SENTENCE = combatDiceRulesText();
 
   // --- Board shape (157-hex "island")
   // Rows are r=0..10, each row is a contiguous run of q.
@@ -231,51 +308,32 @@
   const POINT_VICTORY_CAPTURE_RATIO = 0.45;
   const STRATEGIC_CAPTURE_RATIO = 0.40;
 
-  const COMMAND_POOL = [
-    // Cost 1
-    { id: 'quick_dress', name: 'Quick Dress', cost: 1, persistence: 'persistent', category: 'formation', targeting: 'Up to 3 adjacent INF in same row', explain: 'Shift up to 3 adjacent infantry 1 hex sideways in formation. No attacks.', resolver: 'quick_dress' },
-    { id: 'runner_burst', name: 'Runner Burst', cost: 1, persistence: 'spent', category: 'command', targeting: '1 RUN + nearby allies', explain: 'One runner gets +3 movement this turn; nearby allies gain temporary command relay support.', resolver: 'runner_burst' },
-    { id: 'javelin_volley', name: 'Javelin Volley', cost: 1, persistence: 'spent', category: 'skirmish', targeting: 'Up to 2 SKR/ARC', explain: 'Up to 2 skirmishers/archers gain +2 ranged dice on their next attack this turn.', resolver: 'javelin_volley' },
-    { id: 'quick_withdraw', name: 'Quick Withdraw', cost: 1, persistence: 'persistent', category: 'positional', targeting: '1 SKR/ARC not surrounded', explain: 'One unsurrounded skirmisher or archer steps back 1 hex without attacking.', resolver: 'quick_withdraw' },
-    { id: 'close_ranks', name: 'Close Ranks', cost: 1, persistence: 'persistent', category: 'infantry', targeting: '1 INF', explain: 'One infantry braces: enemy melee against it is -1 die until enemy turn ends.', resolver: 'close_ranks' },
-    { id: 'spur_horses', name: 'Spur the Horses', cost: 1, persistence: 'persistent', category: 'cavalry', targeting: '1 CAV in command', explain: 'One cavalry in command gets +1 movement this turn.', resolver: 'spur_horses' },
-    { id: 'signal_call', name: 'Signal Call', cost: 1, persistence: 'spent', category: 'command', targeting: '1 GEN + up to 2 nearby out-of-command units', explain: 'A general briefly extends command to up to two nearby out-of-command units this turn.', resolver: 'signal_call' },
-    { id: 'loose_screen', name: 'Loose Screen', cost: 1, persistence: 'persistent', category: 'skirmish', targeting: 'Up to 2 SKR/ARC adjacent to INF', explain: 'Up to 2 skirmishers/archers can slip through friendly infantry by 1 hex.', resolver: 'loose_screen' },
-    { id: 'covering_fire', name: 'Covering Fire', cost: 1, persistence: 'spent', category: 'missile', targeting: 'Up to 2 ARC/SKR attacks this turn', explain: 'Your next two ranged attacks ignore terrain-based ranged penalties.', resolver: 'covering_fire' },
-    { id: 'hold_fast', name: 'Hold Fast', cost: 1, persistence: 'spent', category: 'formation', targeting: '1 unit', explain: 'One unit ignores two retreat results before your next turn and gains +1 melee defense.', resolver: 'hold_fast' },
-    // Cost 2
-    { id: 'shield_wall', name: 'Shield Wall', cost: 2, persistence: 'persistent', category: 'infantry', targeting: '3-6 contiguous INF', explain: '3-6 connected infantry form a shield wall: enemy melee -1 die until your next turn.', resolver: 'shield_wall' },
-    { id: 'cavalry_exploit', name: 'Cavalry Exploit', cost: 2, persistence: 'persistent', category: 'cavalry', targeting: 'Up to 3 CAV in one sector', explain: 'Up to 3 cavalry gain shock pressure this turn when they move into clear-ground attacks.', resolver: 'cavalry_exploit' },
-    { id: 'refuse_flank', name: 'Refuse the Flank', cost: 2, persistence: 'persistent', category: 'formation', targeting: '2-5 INF on one wing', explain: 'Pull 2-5 infantry on one wing backward/inward to avoid being wrapped.', resolver: 'refuse_flank' },
-    { id: 'forced_march', name: 'Forced March', cost: 2, persistence: 'persistent', category: 'reserve', targeting: 'Up to 4 INF/SKR in one sector', explain: 'Up to 4 infantry/skirmishers gain +1 move, but they cannot attack this turn.', resolver: 'forced_march' },
-    { id: 'strengthen_center', name: 'Strengthen the Center', cost: 2, persistence: 'persistent', category: 'infantry', targeting: 'Up to 4 INF within 2 of GEN', explain: 'Up to 4 central infantry ignore the first retreat result until your next turn.', resolver: 'strengthen_center' },
-    { id: 'wing_screen', name: 'Wing Screen', cost: 2, persistence: 'spent', category: 'missile', targeting: 'Up to 4 SKR/ARC on flank', explain: 'Up to 4 flank missile units may attack, then step 1 hex, with +1 move this turn.', resolver: 'wing_screen' },
-    { id: 'countercharge', name: 'Countercharge', cost: 2, persistence: 'spent', category: 'cavalry', targeting: 'Up to 3 CAV reaction', explain: 'Up to 3 cavalry can react with a melee strike when enemies close in, with stronger impact.', resolver: 'countercharge' },
-    { id: 'jaws_inward', name: 'Jaws Inward', cost: 2, persistence: 'spent', category: 'formation', targeting: '2-5 veteran/regular INF', explain: 'Experienced infantry from both sides of a fight move inward to compress the enemy line.', resolver: 'jaws_inward' },
-    { id: 'local_reserve', name: 'Local Reserve', cost: 2, persistence: 'spent', category: 'reserve', targeting: 'Up to 3 rear-line units', explain: 'Release up to 3 reserve/rear units for immediate action this turn.', resolver: 'local_reserve' },
-    { id: 'drive_them_back', name: 'Drive Them Back', cost: 2, persistence: 'spent', category: 'infantry', targeting: 'Up to 4 INF', explain: 'Up to 4 infantry gain disarray pressure and +1 attack die this turn.', resolver: 'drive_them_back' },
-    // Cost 3
-    { id: 'full_line_advance', name: 'Full Line Advance', cost: 3, persistence: 'persistent', category: 'formation', targeting: 'One large row', explain: 'Push one major line forward together; blocked units stay put, others advance.', resolver: 'full_line_advance' },
-    { id: 'grand_shield_wall', name: 'Grand Shield Wall', cost: 3, persistence: 'spent', category: 'infantry', targeting: '5-8 contiguous INF', explain: '5-8 infantry form a major wall: very high melee defense, strong retreat resistance, cannot move, persists through your next turn.', resolver: 'grand_shield_wall' },
-    { id: 'all_out_cavalry_sweep', name: 'All-Out Cavalry Sweep', cost: 3, persistence: 'spent', category: 'cavalry', targeting: 'Up to 4 CAV on one wing (fallback: up to 3 INF/SKR/ARC)', explain: 'Cavalry wing gains major shock bonuses through your next turn; if cavalry are gone, convert to a strong wing assault package.', resolver: 'all_out_cavalry_sweep' },
-    { id: 'commit_reserves', name: 'Commit Reserves', cost: 3, persistence: 'spent', category: 'reserve', targeting: 'Up to 4 rear-third non-GEN units', explain: 'Commit deep reserves: selected units step toward the front and gain command/mobility/attack support through your next turn.', resolver: 'commit_reserves' },
-    { id: 'general_assault', name: 'General Assault', cost: 3, persistence: 'persistent', category: 'command', targeting: 'One sector around GEN (up to 4 units)', explain: 'Up to 4 units near a general each get one coordinated move or attack.', resolver: 'general_assault' },
-    { id: 'collapse_center', name: 'Collapse the Center', cost: 3, persistence: 'persistent', category: 'formation', targeting: 'Center INF + inward wings', explain: 'Center yields while wings fold inward to set a compression trap.', resolver: 'collapse_center' },
-    { id: 'last_push', name: 'Last Push', cost: 3, persistence: 'spent', category: 'formation', targeting: 'Up to 4 INF/CAV', explain: 'Up to 4 infantry/cavalry gain +2 attack dice if they attack this turn.', resolver: 'last_push' },
-    { id: 'reforge_line', name: 'Reforge the Line', cost: 3, persistence: 'persistent', category: 'formation', targeting: 'Up to 6 connected INF', explain: 'Reposition up to 6 connected infantry by 1 hex each to rebuild the line.', resolver: 'reforge_line' },
-    { id: 'command_surge', name: 'Command Surge', cost: 3, persistence: 'persistent', category: 'command', targeting: '1 GEN', explain: 'One general extends command radius by +1 this turn and pulls units back in command.', resolver: 'command_surge' },
-    { id: 'stand_or_die', name: 'Stand or Die', cost: 3, persistence: 'spent', category: 'infantry', targeting: '3-5 INF around GEN', explain: '3-5 infantry near a general ignore retreat results and gain +1 melee defense until your next turn.', resolver: 'stand_or_die' },
-  ];
+  const COMMAND_POOL = Object.freeze((Array.isArray(doctrineOrdersApi.DOCTRINE_ORDERS)
+    ? doctrineOrdersApi.DOCTRINE_ORDERS
+    : []).map(normalizeDoctrineOrderShared));
+  if (!COMMAND_POOL.length) console.warn('[Ad Arma] Doctrine order data did not load.');
   const COMMAND_BY_ID = new Map(COMMAND_POOL.map(c => [c.id, c]));
-  function commandUsageLabel(persistence) {
-    return persistence === 'spent' ? 'Single-Use' : 'Reusable';
+  function commandUsageLabel(cmdOrPersistence) {
+    if (cmdOrPersistence && typeof cmdOrPersistence === 'object') {
+      return cmdOrPersistence.singleUse ? 'Single-Use' : 'Reusable';
+    }
+    return cmdOrPersistence === 'spent' ? 'Single-Use' : 'Reusable';
   }
   function commandActionSpend(cmd) {
     if (!cmd) return 0;
     return commandActionSpendShared(cmd);
   }
-  function commandUsageBadge(persistence) {
-    return persistence === 'spent' ? '1x' : 'R';
+  function commandUsageBadge(cmdOrPersistence) {
+    if (cmdOrPersistence && typeof cmdOrPersistence === 'object') {
+      return cmdOrPersistence.singleUse ? '1x' : 'R';
+    }
+    return cmdOrPersistence === 'spent' ? '1x' : 'R';
+  }
+  function commandTierLabel(cmd) {
+    return `Tier ${cmd?.tier ?? cmd?.cost ?? '?'}`;
+  }
+  function commandChipLabel(cmd) {
+    return `T${cmd?.tier ?? cmd?.cost ?? '?'} ${commandUsageBadge(cmd)}`;
   }
   function commandExplainText(cmd) {
     if (!cmd) return '';
@@ -509,55 +567,20 @@
   function commandDictionaryText(cmd) {
     if (!cmd) return '';
     const plain = sentenceize(commandLaymanText(cmd));
-    const usage = commandUsageLabel(cmd.persistence);
+    const usage = commandUsageLabel(cmd);
     const targeting = String(cmd.targeting || 'eligible units').trim();
     const second = sentenceize(`${usage} order targeting ${targeting}`);
     return `${plain} ${second}`.trim();
   }
 
-  // Target selection guidance per directive (for manual multi-pick mode).
-  const COMMAND_TARGET_LIMITS = {
-    quick_dress: { min: 1, max: 3 },
-    runner_burst: { min: 1, max: 1 },
-    javelin_volley: { min: 1, max: 2 },
-    quick_withdraw: { min: 1, max: 1 },
-    close_ranks: { min: 1, max: 1 },
-    spur_horses: { min: 1, max: 1 },
-    signal_call: { min: 1, max: 2 },
-    loose_screen: { min: 1, max: 2 },
-    covering_fire: { min: 0, max: 0 },
-    hold_fast: { min: 1, max: 1 },
-    shield_wall: { min: 3, max: 6 },
-    cavalry_exploit: { min: 1, max: 3 },
-    refuse_flank: { min: 2, max: 5 },
-    forced_march: { min: 1, max: 4 },
-    strengthen_center: { min: 1, max: 4 },
-    wing_screen: { min: 1, max: 4 },
-    countercharge: { min: 1, max: 3 },
-    jaws_inward: { min: 2, max: 5 },
-    local_reserve: { min: 1, max: 3 },
-    drive_them_back: { min: 1, max: 4 },
-    full_line_advance: { min: 3, max: 8 },
-    grand_shield_wall: { min: 5, max: 8 },
-    all_out_cavalry_sweep: { min: 1, max: 4 },
-    commit_reserves: { min: 1, max: 4 },
-    general_assault: { min: 1, max: 4 },
-    collapse_center: { min: 3, max: 9 },
-    last_push: { min: 1, max: 4 },
-    reforge_line: { min: 3, max: 6 },
-    command_surge: { min: 1, max: 1 },
-    stand_or_die: { min: 3, max: 5 },
-  };
+  const COMMAND_TARGET_LIMITS = doctrineOrdersApi.COMMAND_TARGET_LIMITS || Object.fromEntries(
+    COMMAND_POOL.map((cmd) => [cmd.id, {
+      min: Number(cmd.target?.min || 0),
+      max: Number.isFinite(Number(cmd.target?.max)) ? Number(cmd.target.max) : Infinity,
+    }])
+  );
 
-  // Dice faces:
-  // 6 = Hit + Disarray
-  // 5 = Hit
-  // 4 = Retreat
-  // 3 = Disarray
-  // 1-2 = Miss
-  const DIE_HIT = new Set([5, 6]);
-  const DIE_RETREAT = 4;
-  const DIE_DISARRAY = 3;
+  // Dice faces are resolved through app/rules/combat-dice.js.
   const EVENT_TRACE_MAX = 600;
   const sfx = {
     ctx: null,
@@ -713,7 +736,7 @@
   const UNIT_BY_ID = new Map(UNIT_DEFS.map(u => [u.id, u]));
 
   function commandIdsByCost(cost) {
-    return COMMAND_POOL.filter(c => c.cost === cost).map(c => c.id);
+    return COMMAND_POOL.filter(c => c.tier === cost).map(c => c.id);
   }
 
   function makeDoctrineSideState() {
@@ -747,6 +770,18 @@
       const cmd = COMMAND_BY_ID.get(id);
       if (!cmd) continue;
       sideState.byId[id] = {
+        id: cmd.id,
+        name: cmd.name,
+        tier: cmd.tier,
+        actionSpend: commandActionSpend(cmd),
+        timing: cmd.timing,
+        reusable: !!cmd.reusable,
+        singleUse: !!cmd.singleUse,
+        duration: cmd.duration,
+        target: cmd.target,
+        effectSummary: cmd.effectSummary,
+        revealOnUse: !!cmd.revealOnUse,
+        consumeOnUse: !!cmd.consumeOnUse,
         revealed: false,
         spent: false,
         usedCount: 0,
@@ -795,17 +830,17 @@
     for (const cost of COMMAND_COSTS) {
       const pref = preferred.filter((id) => {
         if (used.has(id)) return false;
-        return COMMAND_BY_ID.get(id)?.cost === cost;
+        return COMMAND_BY_ID.get(id)?.tier === cost;
       });
       for (const id of pref) {
-        if (out.filter((x) => COMMAND_BY_ID.get(x)?.cost === cost).length >= COMMANDS_PER_COST) break;
+        if (out.filter((x) => COMMAND_BY_ID.get(x)?.tier === cost).length >= COMMANDS_PER_COST) break;
         out.push(id);
         used.add(id);
       }
-      if (out.filter((x) => COMMAND_BY_ID.get(x)?.cost === cost).length < COMMANDS_PER_COST) {
+      if (out.filter((x) => COMMAND_BY_ID.get(x)?.tier === cost).length < COMMANDS_PER_COST) {
         const fallback = commandIdsByCost(cost).filter((id) => !used.has(id));
         for (const id of fallback) {
-          if (out.filter((x) => COMMAND_BY_ID.get(x)?.cost === cost).length >= COMMANDS_PER_COST) break;
+          if (out.filter((x) => COMMAND_BY_ID.get(x)?.tier === cost).length >= COMMANDS_PER_COST) break;
           out.push(id);
           used.add(id);
         }
@@ -826,35 +861,15 @@
       if (bySide && validateDoctrineLoadout(bySide)) return cloneArray(bySide);
     }
 
-    const n = String(name || '').toLowerCase();
-    if (n.includes('thermopylae') || n.includes('hot gates')) {
-      return [
-        'close_ranks', 'hold_fast', 'signal_call',
-        'shield_wall', 'strengthen_center', 'refuse_flank',
-        'grand_shield_wall', 'stand_or_die', 'collapse_center',
-      ];
+    const normalizedPreset = scenarioMetadata(name).doctrinePreset;
+    if (Array.isArray(normalizedPreset) && validateDoctrineLoadout(normalizedPreset)) {
+      return cloneArray(normalizedPreset);
     }
-    if (n.includes('cannae') || n.includes('zama') || n.includes('ilipa')) {
-      return [
-        'spur_horses', 'quick_withdraw', 'javelin_volley',
-        'cavalry_exploit', 'wing_screen', 'jaws_inward',
-        'all_out_cavalry_sweep', 'commit_reserves', 'last_push',
-      ];
+    if (normalizedPreset && typeof normalizedPreset === 'object') {
+      const bySide = Array.isArray(normalizedPreset[side]) ? normalizedPreset[side] : null;
+      if (bySide && validateDoctrineLoadout(bySide)) return cloneArray(bySide);
     }
-    if (n.includes('granicus') || n.includes('river') || n.includes('ford')) {
-      return [
-        'signal_call', 'covering_fire', 'quick_dress',
-        'forced_march', 'strengthen_center', 'local_reserve',
-        'general_assault', 'command_surge', 'reforge_line',
-      ];
-    }
-    if (n.includes('marathon') || n.includes('pharsalus') || n.includes('thapsus') || n.includes('philippi')) {
-      return [
-        'close_ranks', 'spur_horses', 'hold_fast',
-        'shield_wall', 'cavalry_exploit', 'drive_them_back',
-        'full_line_advance', 'general_assault', 'last_push',
-      ];
-    }
+
     // Side-aware small variation for default maps.
     return side === 'blue'
       ? makeRecommendedDoctrineLoadout()
@@ -1200,7 +1215,7 @@
   const elRulesCommandsAllBtn = document.getElementById('rulesCommandsAllBtn');
   const elRulesCommandsContext = document.getElementById('rulesCommandsContext');
   const COMBAT_RULE_HINT =
-    'Rules: 6=hit+disarray, 5=hit, 4=retreat, 3=disarray, 1-2=miss. Woods -1 die (min 1).';
+    `Rules: ${COMBAT_DICE_RULES_COMPACT}. Woods -1 die (min 1).`;
   let diceRenderNonce = 0;
   let rulesCommandsViewMode = 'selected'; // 'selected' | 'all'
   let rulesCommandsViewSide = 'blue';
@@ -1486,7 +1501,7 @@
     if (entry.spent) return false;
     if (!state.doctrine.commandPhaseOpen) return false;
     if (state.doctrine.commandIssuedThisTurn) return false;
-    if (cmd.cost > (ACT_LIMIT - state.actsUsed)) return false;
+    if (commandActionSpend(cmd) > (ACT_LIMIT - state.actsUsed)) return false;
     return true;
   }
 
@@ -1497,14 +1512,22 @@
 
     entry.revealed = true;
     entry.usedCount = (entry.usedCount || 0) + 1;
-    if (cmd.persistence === 'spent') entry.spent = true;
+    if (cmd.consumeOnUse || cmd.singleUse || cmd.persistence === 'spent') entry.spent = true;
 
     const rec = {
       turn: state.turn,
       side,
       id: cmd.id,
       name: cmd.name,
+      tier: cmd.tier,
       cost: cmd.cost,
+      actionSpend: commandActionSpend(cmd),
+      timing: cmd.timing,
+      reusable: !!cmd.reusable,
+      singleUse: !!cmd.singleUse,
+      duration: cmd.duration,
+      revealOnUse: !!cmd.revealOnUse,
+      consumeOnUse: !!cmd.consumeOnUse,
       persistence: cmd.persistence,
       spent: !!entry.spent,
       at: Date.now(),
@@ -1515,7 +1538,15 @@
       commandId: cmd.id,
       name: cmd.name,
       side,
+      tier: cmd.tier,
       cost: cmd.cost,
+      actionSpend: commandActionSpend(cmd),
+      timing: cmd.timing,
+      reusable: !!cmd.reusable,
+      singleUse: !!cmd.singleUse,
+      duration: cmd.duration,
+      revealOnUse: !!cmd.revealOnUse,
+      consumeOnUse: !!cmd.consumeOnUse,
       persistence: cmd.persistence,
       revealed: true,
       spent: !!entry.spent,
@@ -5718,7 +5749,7 @@ function unitColors(side) {
       if (chosenMode === 'selected') {
         if (selectedIds.length) {
           elRulesCommandsContext.textContent =
-            `Showing ${chosenSide.toUpperCase()} selected War Council orders (3 per cost tier).`;
+            `Showing ${chosenSide.toUpperCase()} selected War Council orders (3 per tier).`;
         } else {
           elRulesCommandsContext.textContent =
             `No War Council selected for ${chosenSide.toUpperCase()} yet. Open War Council to pick 3/3/3.`;
@@ -5734,10 +5765,10 @@ function unitColors(side) {
         rows = selectedIds
           .map((id) => COMMAND_BY_ID.get(id))
           .filter(Boolean)
-          .filter((cmd) => cmd.cost === cost);
+          .filter((cmd) => cmd.tier === cost);
       } else {
         rows = COMMAND_POOL
-          .filter(cmd => cmd.cost === cost)
+          .filter(cmd => cmd.tier === cost)
           .sort((a, b) => {
             if (a.persistence !== b.persistence) return (a.persistence === 'spent') ? 1 : -1;
             return a.name.localeCompare(b.name);
@@ -5750,14 +5781,15 @@ function unitColors(side) {
     const renderList = (rows) => {
       if (!rows.length) return '<div class="rulesCommandEmpty">None</div>';
       return `<ul class="rulesCommandList">${rows.map((cmd) => {
-        const use = commandUsageLabel(cmd.persistence);
+        const use = commandUsageLabel(cmd);
         const target = cmd.targeting ? ` Target: ${cmd.targeting}.` : '';
-        return `<li><b>${cmd.name}</b> <span class="rulesCommandTag">${use}</span><br>${commandLaymanText(cmd)}<br><span class="rulesCommandEffect">Rules effect: ${commandExplainText(cmd)}${target}</span></li>`;
+        const spend = commandActionSpend(cmd);
+        return `<li><b>${cmd.name}</b> <span class="rulesCommandTag">${use}</span> <span class="rulesCommandTag">Action Spend ${spend}</span><br>${commandLaymanText(cmd)}<br><span class="rulesCommandEffect">Rules effect: ${commandExplainText(cmd)}${target}</span></li>`;
       }).join('')}</ul>`;
     };
     const html = grouped.map((g) => {
       return `<section class="rulesCommandTier">
-        <h3>Cost ${g.cost} Orders</h3>
+        <h3>Tier ${g.cost} Orders</h3>
         <div class="rulesCommandColumns">
           <div>
             <h4>Reusable Orders</h4>
@@ -6338,21 +6370,9 @@ function unitColors(side) {
       setTimeout(() => {
         if (renderNonce !== diceRenderNonce) return;
 
-        let outcome = 'miss';
-        let badge = 'M';
-        if (roll === 6) {
-          outcome = 'hit';
-          badge = 'HD';
-        } else if (roll === 5) {
-          outcome = 'hit';
-          badge = 'H';
-        } else if (roll === DIE_RETREAT) {
-          outcome = 'retreat';
-          badge = 'R';
-        } else if (roll === DIE_DISARRAY) {
-          outcome = 'disarray';
-          badge = 'D';
-        }
+        const dieResult = combatDieResult(roll);
+        const outcome = dieResult.outcome;
+        const badge = dieResult.badge;
 
         applyDieFace(face, roll);
         die.className = `die ${outcome}`;
@@ -6380,13 +6400,7 @@ function unitColors(side) {
       if (renderNonce !== diceRenderNonce) return;
       elDiceSummary.textContent = finalSummary;
       if (elBoardDiceResult) {
-        const labels = rolls.map((v) => {
-          if (v === 6) return 'Hit + Disarray';
-          if (v === 5) return 'Hit';
-          if (v === DIE_RETREAT) return 'Retreat';
-          if (v === DIE_DISARRAY) return 'Disarray';
-          return 'Miss';
-        });
+        const labels = rolls.map((v) => combatDieLabel(v));
         elBoardDiceResult.textContent = labels.join(' • ');
       }
       setTimeout(() => {
@@ -6454,29 +6468,24 @@ function unitColors(side) {
     return sc;
   }
 
-  function scenarioStaticMetaFromName(name) {
-    return (scenarioMetaApi.legacyFallbackScenarioMeta || (() => ({
-      group: 'other',
-      description: '',
-      historical: '',
-      sideLabels: null,
-      objectives: [],
-      checkpointTurn: 8,
-      pointTarget: null,
-      notes: '',
-    })))(name);
-  }
-
   function scenarioMetadata(name) {
     const sc = scenarioRecord(name) || {};
-    const explicit = (sc.meta && typeof sc.meta === 'object') ? sc.meta : {};
-    const resolved = resolveScenarioMetadata(name, explicit);
+    const resolved = normalizeScenarioRecordShared(name, sc);
     return {
+      id: resolved.id || '',
+      title: resolved.title || name,
       group: resolved.group || 'other',
+      lesson: resolved.lesson || 'general',
+      victoryType: resolved.victoryType || 'decapitation',
+      terrainType: resolved.terrainType || '',
       description: resolved.description || '',
       historical: resolved.historical || '',
       sideLabels: resolved.sideLabels || null,
+      factions: resolved.factions || resolved.sideLabels || null,
       objectives: Array.isArray(resolved.objectives) ? resolved.objectives : [],
+      startingUnits: Array.isArray(resolved.startingUnits) ? resolved.startingUnits : [],
+      specialRules: Array.isArray(resolved.specialRules) ? resolved.specialRules : [],
+      doctrinePreset: resolved.doctrinePreset || null,
       checkpointTurn: clampInt(resolved.checkpointTurn, 1, 99, 8),
       pointTarget: Number.isFinite(Number(resolved.pointTarget)) ? Math.max(1, Math.trunc(Number(resolved.pointTarget))) : null,
       notes: resolved.notes || '',
@@ -6510,7 +6519,7 @@ function unitColors(side) {
     const spend = Number.isFinite(actionSpend) ? Math.max(1, Math.trunc(actionSpend)) : commandActionSpend(cmd);
     const message =
       `Enemy directive: ${side.toUpperCase()} used ${cmd.name} ` +
-      `(${commandUsageLabel(cmd.persistence)}, spent ${spend} action${spend === 1 ? '' : 's'}).`;
+      `(${commandUsageLabel(cmd)}, spent ${spend} action${spend === 1 ? '' : 's'}).`;
     state.enemyDirectiveNotice = { text: message, atSerial: state.turnSerial };
     log(`⚠️ ${message}`);
   }
@@ -6559,10 +6568,15 @@ function unitColors(side) {
     state.objectiveCheckpointTurn = clampInt(meta.checkpointTurn, 1, 99, 8);
     state.objectiveLastSummary = null;
     state.loadedScenarioMeta = {
+      id: meta.id || '',
+      title: meta.title || name,
+      factions: meta.factions || meta.sideLabels || null,
+      victoryType: meta.victoryType || 'decapitation',
       description: meta.description || '',
       historical: meta.historical || '',
       notes: meta.notes || '',
       pointTarget: meta.pointTarget,
+      specialRules: Array.isArray(meta.specialRules) ? cloneJson(meta.specialRules, []) : [],
     };
   }
 
@@ -7369,7 +7383,7 @@ function unitColors(side) {
         return { id, hidden: false, spent: !!st.spent, cmd, st };
       })
       .filter(Boolean)
-      .sort((a, b) => (a.cmd.cost - b.cmd.cost) || a.cmd.name.localeCompare(b.cmd.name));
+      .sort((a, b) => (a.cmd.tier - b.cmd.tier) || a.cmd.name.localeCompare(b.cmd.name));
   }
 
   function renderDoctrineList(el, rows, mode = 'generic') {
@@ -7382,21 +7396,21 @@ function unitColors(side) {
       if (r.hidden) {
         return `<div class="doctrineChip hidden"><span class="monoVal">[?]</span>Hidden command</div>`;
       }
-      const tag = commandUsageBadge(r.cmd.persistence);
+      const tag = commandChipLabel(r.cmd);
       const cls = r.spent ? 'doctrineChip spent' : 'doctrineChip';
       if (mode === 'own') {
         const eligible = isCommandAvailableForUse(state.side, r.id) && legalDoctrineTargets(state.side, r.id).length > 0;
         const revealTxt = r.st?.revealed ? 'revealed' : 'hidden';
         const eligibleTxt = eligible ? 'ready' : 'locked';
-        return `<div class="${cls}"><span class="monoVal">[${r.cmd.cost}${tag}]</span>${r.cmd.name} <span class="monoVal">${commandUsageLabel(r.cmd.persistence)} · ${revealTxt}, ${eligibleTxt}</span></div>`;
+        return `<div class="${cls}"><span class="monoVal">[${tag}]</span>${r.cmd.name} <span class="monoVal">${commandUsageLabel(r.cmd)} · Spend ${commandActionSpend(r.cmd)} · ${revealTxt}, ${eligibleTxt}</span></div>`;
       }
       if (mode === 'known') {
-        return `<div class="${cls}"><span class="monoVal">[${r.cmd.cost}${tag}]</span>${r.cmd.name} <span class="monoVal">revealed · ${commandUsageLabel(r.cmd.persistence)}</span></div>`;
+        return `<div class="${cls}"><span class="monoVal">[${tag}]</span>${r.cmd.name} <span class="monoVal">revealed · ${commandUsageLabel(r.cmd)} · Spend ${commandActionSpend(r.cmd)}</span></div>`;
       }
       if (mode === 'spent') {
-        return `<div class="${cls}"><span class="monoVal">[${r.cmd.cost}${tag}]</span>${r.cmd.name} <span class="monoVal">single-use consumed</span></div>`;
+        return `<div class="${cls}"><span class="monoVal">[${tag}]</span>${r.cmd.name} <span class="monoVal">single-use consumed</span></div>`;
       }
-      return `<div class="${cls}"><span class="monoVal">[${r.cmd.cost}${tag}]</span>${r.cmd.name}</div>`;
+      return `<div class="${cls}"><span class="monoVal">[${tag}]</span>${r.cmd.name}</div>`;
     }).join('');
     el.innerHTML = html;
   }
@@ -7418,7 +7432,7 @@ function unitColors(side) {
     for (const id of loadout) {
       const cmd = COMMAND_BY_ID.get(id);
       if (!cmd) continue;
-      const group = byCost.get(cmd.cost);
+      const group = byCost.get(cmd.tier);
       if (group) group.push(cmd);
     }
     for (const rows of byCost.values()) {
@@ -7431,20 +7445,20 @@ function unitColors(side) {
     const tierHtml = COMMAND_COSTS.map((cost) => {
       const rows = byCost.get(cost) || [];
       const items = rows.map((cmd) => {
-        const use = commandUsageLabel(cmd.persistence);
+        const use = commandUsageLabel(cmd);
         const target = cmd.targeting ? ` Target: ${cmd.targeting}.` : '';
         return `<article class="ordersExplainItem">
           <div class="ordersExplainHead">
             <div class="ordersExplainName">${cmd.name}</div>
-            <div class="ordersExplainMeta">${use}</div>
+            <div class="ordersExplainMeta">${use} · Action Spend ${commandActionSpend(cmd)}</div>
           </div>
           <div class="ordersExplainLayman">${commandLaymanText(cmd)}</div>
           <div class="ordersExplainBody">Rules effect: ${commandExplainText(cmd)}${target}</div>
         </article>`;
       }).join('');
       return `<section class="ordersExplainTier">
-        <h4 class="ordersExplainTierTitle">Cost ${cost}</h4>
-        ${items || '<div class="ordersExplainEmpty">No selected orders in this cost tier.</div>'}
+        <h4 class="ordersExplainTierTitle">Tier ${cost}</h4>
+        ${items || '<div class="ordersExplainEmpty">No selected orders in this tier.</div>'}
       </section>`;
     }).join('');
 
@@ -7465,9 +7479,11 @@ function unitColors(side) {
         elDoctrineHistoryList.innerHTML = '<div class="doctrineChip hidden">No commands used yet.</div>';
       } else {
         const html = items.map((it) => {
-          const p = commandUsageBadge(it.persistence);
+          const p = commandUsageBadge(it);
+          const tier = it.tier || it.cost || '?';
+          const spend = it.actionSpend || it.cost || '?';
           const s = it.side === 'red' ? 'RED' : 'BLUE';
-          return `<div class="doctrineChip ${it.spent ? 'spent' : ''}"><span class="monoVal">${s} T${it.turn}</span>${it.name} [${it.cost}${p}]</div>`;
+          return `<div class="doctrineChip ${it.spent ? 'spent' : ''}"><span class="monoVal">${s} T${it.turn}</span>${it.name} [T${tier} ${p} · Spend ${spend}]</div>`;
         }).join('');
         elDoctrineHistoryList.innerHTML = html;
       }
@@ -7738,7 +7754,7 @@ function unitColors(side) {
       const coaching = commandCoachingFor(cmd);
       const opt = document.createElement('option');
       opt.value = cmd.id;
-      opt.textContent = `[${cmd.cost}] ${cmd.name} (${commandUsageLabel(cmd.persistence)} · targets ${targetCount})`;
+      opt.textContent = `[T${cmd.tier}] ${cmd.name} (${commandUsageLabel(cmd)} · Spend ${commandActionSpend(cmd)} · targets ${targetCount})`;
       opt.title =
         `${commandLaymanText(cmd)} ` +
         `${commandSpendSummaryText(cmd)} ` +
@@ -8402,11 +8418,12 @@ function unitColors(side) {
     const watchText = sentenceize(coaching.watch);
     const statusText = sentenceize(commandStatusSummaryText(side, cmd));
     const legendItems = commandPreviewLegendItems(commandId);
+    const spend = commandActionSpend(cmd);
     const pills = [
-      `Cost ${cmd.cost}`,
-      commandUsageLabel(cmd.persistence),
+      commandTierLabel(cmd),
+      commandUsageLabel(cmd),
       commandCategoryLabel(cmd.category),
-      `Spend ${commandActionSpend(cmd)}`,
+      `Spend ${spend} action${spend === 1 ? '' : 's'}`,
     ];
     const pillsHtml = pills.map((pill) => `<span class="coachPill">${escapeHtml(pill)}</span>`).join('');
     const legendHtml = legendItems.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
@@ -8463,8 +8480,8 @@ function unitColors(side) {
 
     const side = (state.side === 'red') ? 'red' : 'blue';
     const metaParts = [
-      `Cost ${cmd.cost}`,
-      commandUsageLabel(cmd.persistence),
+      commandTierLabel(cmd),
+      commandUsageLabel(cmd),
       commandCategoryLabel(cmd.category),
       `Spend ${commandActionSpend(cmd)} action${commandActionSpend(cmd) === 1 ? '' : 's'}`,
     ];
@@ -9026,7 +9043,7 @@ function stopDoctrinePreviewLoop() {
   }
 
   function renderDoctrineTierState(colEl, titleEl, cost, count) {
-    if (titleEl) titleEl.textContent = `Cost ${cost} (${count}/${COMMANDS_PER_COST})`;
+    if (titleEl) titleEl.textContent = `Tier ${cost} (${count}/${COMMANDS_PER_COST})`;
     if (!colEl) return;
     const complete = count === COMMANDS_PER_COST;
     colEl.classList.toggle('is-complete', complete);
@@ -9038,7 +9055,7 @@ function stopDoctrinePreviewLoop() {
     const draft = new Set(currentDoctrineBuilderDraft(side));
     const selectedOnly = !!readOnly;
     const cmds = COMMAND_POOL
-      .filter((c) => c.cost === cost && (!selectedOnly || draft.has(c.id)))
+      .filter((c) => c.tier === cost && (!selectedOnly || draft.has(c.id)))
       .sort((a, b) => {
         if (a.persistence !== b.persistence) return (a.persistence === 'spent') ? 1 : -1;
         return a.name.localeCompare(b.name);
@@ -9054,7 +9071,7 @@ function stopDoctrinePreviewLoop() {
           <span class="doctrinePickLockDot" aria-hidden="true">●</span>
           <span>
             <span class="doctrinePickName">${cmd.name}</span>
-            <span class="doctrinePickMeta">Cost ${cmd.cost} · ${commandUsageLabel(cmd.persistence)}</span>
+            <span class="doctrinePickMeta">${commandTierLabel(cmd)} · ${commandUsageLabel(cmd)} · Action Spend ${commandActionSpend(cmd)}</span>
             <span class="doctrinePickExplain">${commandDictionaryText(cmd)}</span>
           </span>
         </div>`;
@@ -9063,7 +9080,7 @@ function stopDoctrinePreviewLoop() {
         <input type="checkbox" data-doctrine-id="${cmd.id}" data-cost="${cost}" ${checked}>
         <span>
           <span class="doctrinePickName">${cmd.name}</span>
-          <span class="doctrinePickMeta">Cost ${cmd.cost} · ${commandUsageLabel(cmd.persistence)}</span>
+          <span class="doctrinePickMeta">${commandTierLabel(cmd)} · ${commandUsageLabel(cmd)} · Action Spend ${commandActionSpend(cmd)}</span>
           <span class="doctrinePickExplain">${commandDictionaryText(cmd)}</span>
         </span>
       </label>`;
@@ -9072,7 +9089,7 @@ function stopDoctrinePreviewLoop() {
     const reusable = cmds.filter(c => c.persistence !== 'spent');
     const singleUse = cmds.filter(c => c.persistence === 'spent');
     const html = `${reusable.length ? `<div class="doctrinePickGroup">Reusable Orders</div>${renderRows(reusable)}` : ''}${singleUse.length ? `<div class="doctrinePickGroup">Single-Use Orders</div>${renderRows(singleUse)}` : ''}`;
-    el.innerHTML = html || '<div class="note">No orders in this cost tier.</div>';
+    el.innerHTML = html || '<div class="note">No orders in this tier.</div>';
   }
 
   function renderDoctrineBuilderFocusOnly() {
@@ -9107,9 +9124,9 @@ function stopDoctrinePreviewLoop() {
     renderDoctrineBuilderList(elDoctrineCost2List, side, 2, readOnly);
     renderDoctrineBuilderList(elDoctrineCost3List, side, 3, readOnly);
     const draft = currentDoctrineBuilderDraft(side);
-    const count1 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 1).length;
-    const count2 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 2).length;
-    const count3 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 3).length;
+    const count1 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 1).length;
+    const count2 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 2).length;
+    const count3 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 3).length;
     const tierValid = (count1 === COMMANDS_PER_COST) && (count2 === COMMANDS_PER_COST) && (count3 === COMMANDS_PER_COST);
     renderDoctrineTierState(elDoctrineCost1Col, elDoctrineCost1Title, 1, count1);
     renderDoctrineTierState(elDoctrineCost2Col, elDoctrineCost2Title, 2, count2);
@@ -9119,11 +9136,11 @@ function stopDoctrinePreviewLoop() {
     const redOk = !!state.doctrine.builder.confirmed.red;
     if (elDoctrineBuilderCounts) {
       if (readOnly) {
-        elDoctrineBuilderCounts.textContent = `${side.toUpperCase()} doctrine loaded · Cost 1: ${count1}/3 · Cost 2: ${count2}/3 · Cost 3: ${count3}/3`;
+        elDoctrineBuilderCounts.textContent = `${side.toUpperCase()} doctrine loaded · Tier 1: ${count1}/3 · Tier 2: ${count2}/3 · Tier 3: ${count3}/3`;
       } else {
         elDoctrineBuilderCounts.textContent =
-          `${side.toUpperCase()} picks: cost1 ${count1}/3 · cost2 ${count2}/3 · cost3 ${count3}/3 · ` +
-          `Pick exactly 3 in each cost tier. Confirmed: Blue ${blueOk ? 'yes' : 'no'} · Red ${redOk ? 'yes' : 'no'}.`;
+          `${side.toUpperCase()} picks: tier1 ${count1}/3 · tier2 ${count2}/3 · tier3 ${count3}/3 · ` +
+          `Pick exactly 3 in each tier. Confirmed: Blue ${blueOk ? 'yes' : 'no'} · Red ${redOk ? 'yes' : 'no'}.`;
       }
     }
     if (elDoctrineOverlay) {
@@ -9151,10 +9168,10 @@ function stopDoctrinePreviewLoop() {
     state.doctrine.builder.focusCommandId = commandId;
     const draft = currentDoctrineBuilderDraft(side);
     const draftSet = new Set(draft);
-    const costCount = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === cmd.cost).length;
+    const costCount = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === cmd.tier).length;
     if (checked) {
       if (costCount >= COMMANDS_PER_COST) {
-        log(`Cost ${cmd.cost} is full. Uncheck one order in that column, then pick a different one.`);
+        log(`Tier ${cmd.tier} is full. Uncheck one order in that column, then pick a different one.`);
         return;
       }
       draftSet.add(commandId);
@@ -9168,18 +9185,18 @@ function stopDoctrinePreviewLoop() {
   function applyDoctrineFromBuilder(side) {
     ensureDoctrineConfirmState();
     const draft = currentDoctrineBuilderDraft(side);
-    const c1 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 1).length;
-    const c2 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 2).length;
-    const c3 = draft.filter(id => COMMAND_BY_ID.get(id)?.cost === 3).length;
+    const c1 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 1).length;
+    const c2 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 2).length;
+    const c3 = draft.filter(id => COMMAND_BY_ID.get(id)?.tier === 3).length;
     const tierValid = (c1 === COMMANDS_PER_COST) && (c2 === COMMANDS_PER_COST) && (c3 === COMMANDS_PER_COST);
     if (!tierValid) {
       const msg =
         `${side.toUpperCase()} doctrine incomplete: ` +
-        `Cost 1 ${c1}/${COMMANDS_PER_COST}, ` +
-        `Cost 2 ${c2}/${COMMANDS_PER_COST}, ` +
-        `Cost 3 ${c3}/${COMMANDS_PER_COST}.`;
+        `Tier 1 ${c1}/${COMMANDS_PER_COST}, ` +
+        `Tier 2 ${c2}/${COMMANDS_PER_COST}, ` +
+        `Tier 3 ${c3}/${COMMANDS_PER_COST}.`;
       if (elDoctrineBuilderCounts) {
-        elDoctrineBuilderCounts.textContent = `${msg} Pick exactly 3 per cost tier.`;
+        elDoctrineBuilderCounts.textContent = `${msg} Pick exactly 3 per tier.`;
       }
       log(msg);
       updateHud();
@@ -9187,9 +9204,9 @@ function stopDoctrinePreviewLoop() {
     }
     if (!validateDoctrineLoadout(draft)) {
       if (elDoctrineBuilderCounts) {
-        elDoctrineBuilderCounts.textContent = `${side.toUpperCase()} doctrine invalid: choose exactly 3 commands at each cost tier.`;
+        elDoctrineBuilderCounts.textContent = `${side.toUpperCase()} doctrine invalid: choose exactly 3 commands at each tier.`;
       }
-      log(`${side.toUpperCase()} doctrine invalid: must pick exactly 3 commands at each cost.`);
+      log(`${side.toUpperCase()} doctrine invalid: must pick exactly 3 commands at each tier.`);
       updateHud();
       return false;
     }
@@ -9319,7 +9336,7 @@ function stopDoctrinePreviewLoop() {
           if (cmd) {
             const spend = commandActionSpend(cmd);
             statusLines.push(
-              `Directive used: ${cmd.name} (${commandUsageLabel(cmd.persistence)}) • ` +
+              `Directive used: ${cmd.name} (${commandUsageLabel(cmd)}) • ` +
               `spent ${spend} action${spend === 1 ? '' : 's'} this turn.`
             );
           } else {
@@ -9329,7 +9346,11 @@ function stopDoctrinePreviewLoop() {
           statusLines.push('Directive: intentionally skipped this turn.');
         }
       } else {
-        statusLines.push('Directive: optional once per turn. You may issue one any time before actions run out.');
+        if (state.doctrine.commandPhaseOpen) {
+          statusLines.push('Directive: start-of-turn doctrine step open. Commit one order or skip before unit actions.');
+        } else {
+          statusLines.push('Directive: doctrine step closed; unit actions are underway.');
+        }
       }
     }
     statusLines.push(`Build ${BUILD_ID}`);
@@ -9887,9 +9908,9 @@ function stopDoctrinePreviewLoop() {
   function chooseAiDoctrineCommandId(opts = {}) {
     const remainingActions = Math.max(0, ACT_LIMIT - state.actsUsed);
     const maxCostRaw = Number.isFinite(opts.maxCost) ? Number(opts.maxCost) : remainingActions;
-    const maxCost = Math.max(1, Math.min(ACT_LIMIT, Math.trunc(maxCostRaw)));
+    const maxSpend = Math.max(1, Math.min(ACT_LIMIT, Math.trunc(maxCostRaw)));
 
-    let legal = legalCommandsForSide(state.side).filter((cmd) => cmd.cost <= maxCost);
+    let legal = legalCommandsForSide(state.side).filter((cmd) => commandActionSpend(cmd) <= maxSpend);
     if (!legal.length) return null;
 
     const actionsUsed = Number.isFinite(opts.actionsUsed) ? Math.max(0, Math.trunc(opts.actionsUsed)) : state.actsUsed;
@@ -9897,14 +9918,15 @@ function stopDoctrinePreviewLoop() {
 
     // Opening preference: keep command spend low so AI still has room for multiple unit activations.
     if (actionsUsed <= 0) {
-      const costOne = legal.filter((cmd) => cmd.cost === 1);
-      if (costOne.length) legal = costOne;
+      const spendOne = legal.filter((cmd) => commandActionSpend(cmd) === 1);
+      if (spendOne.length) legal = spendOne;
     }
 
     const sorted = cloneArray(legal).sort((a, b) => {
-      if (level === 'hard') return (Math.abs(2 - a.cost) - Math.abs(2 - b.cost)) || a.name.localeCompare(b.name);
-      if (level === 'easy') return a.cost - b.cost || a.name.localeCompare(b.name);
-      return a.cost - b.cost || a.name.localeCompare(b.name);
+      const aSpend = commandActionSpend(a);
+      const bSpend = commandActionSpend(b);
+      if (level === 'hard') return (Math.abs(2 - aSpend) - Math.abs(2 - bSpend)) || a.name.localeCompare(b.name);
+      return aSpend - bSpend || a.name.localeCompare(b.name);
     });
     return sorted[0]?.id || null;
   }
@@ -9920,7 +9942,7 @@ function stopDoctrinePreviewLoop() {
     // Opening command use is intentionally uncommon to avoid "AI only moved twice"
     // confusion unless a directive clearly helps.
     let chance = (level === 'hard') ? 0.22 : (level === 'easy' ? 0.08 : 0.15);
-    if (cmd.cost === 1) chance += 0.05;
+    if (commandActionSpend(cmd) === 1) chance += 0.05;
     chance = Math.max(0, Math.min(0.75, chance));
     return Math.random() < chance;
   }
@@ -11966,7 +11988,7 @@ function stopDoctrinePreviewLoop() {
   function commandLabel(commandId) {
     const cmd = COMMAND_BY_ID.get(commandId);
     if (!cmd) return commandId;
-    return `${cmd.name} [${cmd.cost}]`;
+    return `${cmd.name} [T${cmd.tier}]`;
   }
 
   function issueDoctrineCommand(commandId, options = {}) {
@@ -12048,14 +12070,19 @@ function stopDoctrinePreviewLoop() {
       for (const id of affectedUnitIds) state.actedUnitIds.add(id);
     }
 
-    log(`${side.toUpperCase()} used ${cmd.name} (${commandUsageLabel(cmd.persistence)}, ${actionSpend} action${actionSpend === 1 ? '' : 's'}).`);
+    log(`${side.toUpperCase()} used ${cmd.name} (${commandUsageLabel(cmd)}, ${actionSpend} action${actionSpend === 1 ? '' : 's'}).`);
     if (result.message) log(result.message);
     notifyEnemyDirectiveUsed(side, cmd, actionSpend);
     pushEventTrace('command.resolve', {
       commandId: cmd.id,
       side,
+      tier: cmd.tier,
       cost: cmd.cost,
       actionSpend,
+      timing: cmd.timing,
+      reusable: !!cmd.reusable,
+      singleUse: !!cmd.singleUse,
+      duration: cmd.duration,
       persistence: cmd.persistence,
       affectedUnitIds,
       spendTargets: !!result.spendTargets,
@@ -12559,24 +12586,7 @@ function stopDoctrinePreviewLoop() {
     const atkDef = UNIT_BY_ID.get(atk.type);
     const defDef = UNIT_BY_ID.get(defU.type);
 
-    let hits = 0;
-    let retreats = 0;
-    let disarrays = 0;
-    let misses = 0;
-    for (const v of rolls) {
-      if (v === 6) {
-        hits += 1;
-        disarrays += 1;
-      } else if (v === 5) {
-        hits += 1;
-      } else if (v === DIE_RETREAT) {
-        retreats += 1;
-      } else if (v === DIE_DISARRAY) {
-        disarrays += 1;
-      } else {
-        misses += 1;
-      }
-    }
+    let { hits, retreats, disarrays, misses } = summarizeCombatRolls(rolls);
     if (prof.kind === 'melee' && doctrineFlagForUnit('driveThemBackUnitIds', atk.id, atk.side)) {
       const driveIdx = rolls.findIndex(v => v === 2);
       if (driveIdx >= 0) {
@@ -12602,11 +12612,8 @@ function stopDoctrinePreviewLoop() {
       log('Angle shock canceled: reinforced infantry absorbed flank/rear pressure.');
     }
     const rollTokens = rolls.map((v) => {
-      if (v === 6) return `${v}HD`;
-      if (v === 5) return `${v}H`;
-      if (v === DIE_RETREAT) return `${v}R`;
-      if (v === DIE_DISARRAY) return `${v}D`;
-      return `${v}M`;
+      const result = combatDieResult(v);
+      return `${v}${result.badge}`;
     });
     const modParts = [`base ${baseDice}`];
     if (flankBonus) modParts.push(`flank +${flankBonus}`);
@@ -13513,25 +13520,7 @@ function stopDoctrinePreviewLoop() {
   }
 
   function summarizeTutorialRolls(rolls = []) {
-    let hits = 0;
-    let retreats = 0;
-    let disarrays = 0;
-    let misses = 0;
-    for (const v of rolls) {
-      if (v === 6) {
-        hits += 1;
-        disarrays += 1;
-      } else if (v === 5) {
-        hits += 1;
-      } else if (v === DIE_RETREAT) {
-        retreats += 1;
-      } else if (v === DIE_DISARRAY) {
-        disarrays += 1;
-      } else {
-        misses += 1;
-      }
-    }
-    return { hits, retreats, disarrays, misses };
+    return summarizeCombatRolls(rolls);
   }
 
   function playTutorialCombatSample({
@@ -13796,7 +13785,7 @@ function stopDoctrinePreviewLoop() {
         ],
         learn: [
           'Infantry melee base dice: 2.',
-          '6 = hit + disarray, 5 = hit, 4 = retreat, 3 = disarray, 1-2 = miss.',
+          `${COMBAT_DICE_RULES_SENTENCE}.`,
         ],
         task: {
           type: 'move_attack',
@@ -14162,6 +14151,7 @@ function stopDoctrinePreviewLoop() {
           'Directives are your tactical orders. The preview now answers four questions before you commit: what it spends, what you pick, what changes on the board, and when to use it.',
         focusKeys: [k.blueGen, k.blueInfFrontL, k.blueCav, k.blueArc],
         learn: [
+          'At the start of your turn, choose one directive or skip the doctrine step before moving units.',
           'Directives spend actions from the same 3-action turn budget.',
           'Blue paths mean repositioning, red means attack pressure, purple means command links, and green means hold/brace effects.',
           'Open War Council to inspect the highlighted example directive with its full preview and coaching.',
@@ -14186,7 +14176,7 @@ function stopDoctrinePreviewLoop() {
         id: 'combat_results',
         title: 'Combat Results: Hit, Retreat, Disarray',
         text:
-          'Core dice language: 6 = hit + disarray, 5 = hit, 4 = retreat, 3 = disarray, 1-2 = miss.',
+          `Core dice language: ${COMBAT_DICE_RULES_SENTENCE}.`,
         focusKeys: [k.blueInfFrontL, k.redInfFrontR],
         paths: [{ fromKey: k.blueInfFrontL, toKey: k.redInfFrontR, kind: 'melee' }],
         learn: [
@@ -14565,7 +14555,7 @@ function stopDoctrinePreviewLoop() {
       return;
     }
     if (!state.doctrine.builder.preBattleReady) {
-      log('Review the battlefield first, then open War Council and confirm Blue + Red orders (3 per cost tier).');
+      log('Review the battlefield first, then open War Council and confirm Blue + Red orders (3 per tier).');
       updateHud();
       return;
     }
@@ -14574,7 +14564,7 @@ function stopDoctrinePreviewLoop() {
     const redLoadout = doctrineStateForSide('red')?.loadout || [];
     if (!validateDoctrineLoadout(blueLoadout) || !validateDoctrineLoadout(redLoadout)) {
       state.doctrine.builder.preBattleReady = false;
-      log('Doctrine incomplete: each side must pick exactly 3 Cost-1, 3 Cost-2, and 3 Cost-3 orders.');
+      log('Doctrine incomplete: each side must pick exactly 3 Tier-1, 3 Tier-2, and 3 Tier-3 orders.');
       updateHud();
       return;
     }
@@ -17748,7 +17738,7 @@ function stopDoctrinePreviewLoop() {
       clearDoctrineLoadoutForSide('red', 'blank');
       state.doctrine.builder.preBattleReady = false;
       state.doctrine.builder.confirmed = { blue: false, red: false };
-      log('Cleared doctrine selections for both sides. Pick 3 commands in each cost tier.');
+      log('Cleared doctrine selections for both sides. Pick 3 commands in each tier.');
       updateHud();
     });
   }
@@ -17949,10 +17939,6 @@ function stopDoctrinePreviewLoop() {
   function scenarioGroupTag(name) {
     const meta = scenarioMetadata(name);
     if (meta.group && SCENARIO_FILTER_IDS.group.has(meta.group)) return meta.group;
-    if (name.startsWith('Demo ')) return 'demo';
-    if (name.startsWith('Grand ')) return 'grand';
-    if (name.startsWith('Terrain ')) return 'terrain';
-    if (name.startsWith('Berserker ')) return 'berserker';
     return 'other';
   }
 
@@ -17972,18 +17958,9 @@ function stopDoctrinePreviewLoop() {
     return 'mixed';
   }
 
-  function scenarioLessonTag(name, group, terrainTag) {
-    const n = name.toLowerCase();
-    if (group === 'tutorial' || group === 'demo') return 'general';
-    if (group === 'terrain' || terrainTag === 'mixed' || (terrainTag !== 'open' && /terrain|marsh|woods|ridge|broken ground/.test(n))) {
-      return 'terrain';
-    }
-    if (/river|ford/.test(n)) return 'river';
-    if (/corridor|pass/.test(n)) return 'corridor';
-    if (/screen|skirmisher/.test(n)) return 'screen';
-    if (/envelopment|encircle|crescent|flank|wedge|wide wings|columns/.test(n)) return 'envelopment';
-    if (/center|push/.test(n)) return 'center';
-    if (/line|checkerboard/.test(n)) return 'lines';
+  function scenarioLessonTag(meta, group, terrainTag) {
+    if (meta?.lesson && SCENARIO_FILTER_IDS.lesson.has(meta.lesson)) return meta.lesson;
+    if (group === 'terrain' || terrainTag === 'mixed' || (terrainTag !== 'open' && terrainTag !== 'all')) return 'terrain';
     return 'general';
   }
 
@@ -17992,18 +17969,22 @@ function stopDoctrinePreviewLoop() {
     const meta = scenarioMetadata(name);
     const totalUnits = Array.isArray(sc.units) ? sc.units.length : 0;
     const group = scenarioGroupTag(name);
-    const terrain = scenarioTerrainTag(sc);
+    const terrain = (meta.terrainType && SCENARIO_FILTER_IDS.terrain.has(meta.terrainType))
+      ? meta.terrainType
+      : scenarioTerrainTag(sc);
     const size = scenarioSizeTag(totalUnits);
-    const lesson = scenarioLessonTag(name, group, terrain);
+    const lesson = scenarioLessonTag(meta, group, terrain);
     return {
       group,
       lesson,
       size,
       terrain,
       totalUnits,
+      victoryType: meta.victoryType || 'decapitation',
       description: meta.description || '',
       historical: meta.historical || '',
       notes: meta.notes || '',
+      factions: meta.factions || null,
       objectives: Array.isArray(meta.objectives) ? meta.objectives.length : 0,
     };
   }
@@ -18069,7 +18050,7 @@ function stopDoctrinePreviewLoop() {
       opt.textContent = name;
       const historyTag = meta.historical ? ` · Era=${meta.historical}` : '';
       const objectiveTag = (meta.objectives > 0) ? ` · Objectives=${meta.objectives}` : '';
-      opt.title = `Group=${meta.group} · Lesson=${meta.lesson} · Size=${meta.size} · Map=${meta.terrain}${historyTag}${objectiveTag}`;
+      opt.title = `Group=${meta.group} · Lesson=${meta.lesson} · Victory=${meta.victoryType} · Size=${meta.size} · Map=${meta.terrain}${historyTag}${objectiveTag}`;
       elScenarioSel.appendChild(opt);
       shown += 1;
     }

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Sanity checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run sanity-checks
+        run: node app/tests/sanity-checks.cjs
+
+      - name: HTML smoke test (parses without error)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('index.html', 'utf8');
+            if (!html.includes('<title>')) throw new Error('missing <title>');
+            if (!html.includes('og:image')) throw new Error('missing og:image');
+            if (!html.includes('vendor/peerjs')) throw new Error('expected self-hosted peerjs');
+            if (html.includes('POLEMO')) throw new Error('POLEMO references should be removed');
+            console.log('html OK');
+          "
+
+      - name: Required files present
+        run: |
+          for f in index.html build.js app/main.js app/style.css \
+                   robots.txt sitemap.xml site.webmanifest \
+                   assets/favicon.svg assets/og-image.png \
+                   fonts/fonts.css fonts/cinzel-latin.woff2 \
+                   vendor/peerjs-1.5.4.min.js; do
+            if [ ! -f "$f" ]; then
+              echo "missing: $f"; exit 1
+            fi
+          done
+          echo "all required files present"

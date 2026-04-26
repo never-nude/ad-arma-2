@@ -88,6 +88,26 @@ body.intro-open #combatRail{
   line-height:1.5;
 }
 
+.introScenarioStrip{
+  margin:0 auto 18px;
+  max-width:860px;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  gap:6px 8px;
+  font-family:'Cinzel','Trajan Pro','Times New Roman',serif;
+  font-size:12px;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+.introScenarioStrip span{
+  padding:4px 10px;
+  border:1px solid rgba(216,189,126,0.28);
+  border-radius:999px;
+  background:rgba(8,10,16,0.55);
+  color:#cdb98a;
+}
+
 .introFooter{
   margin:18px auto 0;
   text-align:center;
@@ -101,6 +121,14 @@ body.intro-open #combatRail{
   text-underline-offset:2px;
 }
 .introFooter a:hover{ color:#e6e9f0; }
+.introBuild{
+  display:block;
+  margin-top:6px;
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:11px;
+  letter-spacing:0;
+  color:#8c93a3;
+}
 
 .introActions{
   display:grid;
